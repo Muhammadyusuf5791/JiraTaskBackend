@@ -1,4 +1,4 @@
-const { User, Task, Penalty, Notification, Project } = require("../models");
+const { User, Task, Penalty, Notification, Project, sequelize } = require("../models");
 const { validateUser, validateUpdateUser } = require("../validation/userValidaton");
 const { Op } = require("sequelize");
 const jwt = require("jsonwebtoken");
@@ -197,13 +197,18 @@ exports.getMobileDashboard = async (req, res) => {
       } else if (userRole === 'Tester') {
           stats.totalProjects = await Project.count({ where: { testerId: userId } });
       } else {
-          // For developers, count projects where they have tasks
-          const devProjects = await Task.findAll({
+          // For developers, count projects where they are Team Lead OR have tasks
+          const tlProjects = await Project.findAll({ where: { teamLeadId: userId }, attributes: ['id'], raw: true });
+          const devTasks = await Task.findAll({
               where: { assigneeId: userId },
-              attributes: [[sequelize.fn('DISTINCT', sequelize.col('projectId')), 'projectId']],
+              attributes: ['projectId'],
               raw: true
           });
-          stats.totalProjects = devProjects.filter(p => p.projectId).length;
+          const allIds = new Set([
+              ...tlProjects.map(p => p.id),
+              ...devTasks.map(t => t.projectId).filter(id => id)
+          ]);
+          stats.totalProjects = allIds.size;
       }
     } catch (e) {
       console.error("Dashboard stats sub-error:", e);

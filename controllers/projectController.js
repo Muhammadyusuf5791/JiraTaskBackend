@@ -15,31 +15,48 @@ exports.createProject = async (req, res) => {
 
 exports.getProjects = async (req, res) => {
   try {
-    const whereClause = {};
-    if (req.user && req.user.role === "Tester") {
-      whereClause.testerId = req.user.id;
-    }
-    if (req.user && req.user.role === "Developer") {
-      whereClause.teamLeadId = req.user.id;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    let projects = [];
+
+    if (userRole === "Admin") {
+      projects = await Project.findAll({
+        include: [
+          { model: User, as: "teamLead", attributes: ["id", "fullName", "role"] },
+          { model: User, as: "tester", attributes: ["id", "fullName", "role"] },
+        ],
+      });
+    } else if (userRole === "Tester") {
+      projects = await Project.findAll({
+        where: { testerId: userId },
+        include: [
+          { model: User, as: "teamLead", attributes: ["id", "fullName", "role"] },
+          { model: User, as: "tester", attributes: ["id", "fullName", "role"] },
+        ],
+      });
+    } else {
+      // Developer: Find projects where they have tasks assigned
+      const taskProjects = await Task.findAll({
+        where: { assigneeId: userId },
+        attributes: ["projectId"],
+        raw: true
+      });
+      const projectIds = [...new Set(taskProjects.map(t => t.projectId).filter(id => id))];
+      
+      if (projectIds.length > 0) {
+        projects = await Project.findAll({
+          where: { id: { [Op.in]: projectIds } },
+          include: [
+            { model: User, as: "teamLead", attributes: ["id", "fullName", "role"] },
+            { model: User, as: "tester", attributes: ["id", "fullName", "role"] },
+          ],
+        });
+      }
     }
 
-    const projects = await Project.findAll({
-      where: whereClause,
-      include: [
-        {
-          model: User,
-          as: "teamLead",
-          attributes: ["id", "fullName", "phone", "role"],
-        },
-        {
-          model: User,
-          as: "tester",
-          attributes: ["id", "fullName", "phone", "role"],
-        },
-      ],
-    });
     res.status(200).send(projects);
   } catch (error) {
+    console.error("getProjects error:", error);
     res.status(500).send({ message: "Serverda xatolik", error: error.message });
   }
 };
