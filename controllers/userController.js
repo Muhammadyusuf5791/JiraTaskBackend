@@ -153,86 +153,108 @@ exports.getMobileDashboard = async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // 1. Basic Stats
+    // 1. Basic Stats with safety
     const stats = {
-      pendingTasks: await Task.count({
+      pendingTasks: 0,
+      inReview: 0,
+      doneTasks: 0,
+      overdueTasks: 0,
+      penalties: 0,
+      totalPenaltyAmount: 0,
+    };
+
+    try {
+      stats.pendingTasks = await Task.count({
         where: userRole === 'Admin' ? { status: ['TODO', 'IN_PROGRESS'] } : { assigneeId: userId, status: ['TODO', 'IN_PROGRESS'] }
-      }),
-      inReview: await Task.count({
+      });
+      stats.inReview = await Task.count({
         where: userRole === 'Admin' 
           ? { status: 'IN_REVIEW' } 
           : (userRole === 'Tester' 
             ? { status: 'IN_REVIEW' } 
             : { assigneeId: userId, status: 'IN_REVIEW' })
-      }),
-      doneTasks: await Task.count({
+      });
+      stats.doneTasks = await Task.count({
         where: userRole === 'Admin' ? { status: 'DONE' } : { assigneeId: userId, status: 'DONE' }
-      }),
-      overdueTasks: await Task.count({
+      });
+      stats.overdueTasks = await Task.count({
         where: userRole === 'Admin' 
           ? { status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } } 
           : { assigneeId: userId, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
-      }),
-      penalties: await Penalty.count({
+      });
+      stats.penalties = await Penalty.count({
         where: userRole === 'Admin' ? {} : { userId }
-      }),
-      totalPenaltyAmount: await Penalty.sum('amount', {
+      });
+      
+      const penaltySum = await Penalty.sum('amount', {
         where: userRole === 'Admin' ? {} : { userId }
-      }) || 0,
-      totalUsers: userRole === 'Admin' ? await User.count() : undefined,
-      totalProjects: userRole === 'Admin' 
-        ? await Project.count() 
-        : (userRole === 'Tester' 
-          ? await Project.count({ where: { testerId: userId } })
-          : await Project.count({ 
-              distinct: true, 
-              include: [{ 
-                model: Task, 
-                as: 'tasks', 
-                where: { assigneeId: userId }, 
-                required: true 
-              }] 
-            })
-        ),
-    };
+      });
+      stats.totalPenaltyAmount = penaltySum || 0;
+      
+      if (userRole === 'Admin') {
+          stats.totalUsers = await User.count();
+          stats.totalProjects = await Project.count();
+      } else if (userRole === 'Tester') {
+          stats.totalProjects = await Project.count({ where: { testerId: userId } });
+      } else {
+          // For developers, count projects where they have tasks
+          const devProjects = await Task.findAll({
+              where: { assigneeId: userId },
+              attributes: [[sequelize.fn('DISTINCT', sequelize.col('projectId')), 'projectId']],
+              raw: true
+          });
+          stats.totalProjects = devProjects.filter(p => p.projectId).length;
+      }
+    } catch (e) {
+      console.error("Dashboard stats sub-error:", e);
+    }
 
     // Refine inReview for Tester
     if (userRole === 'Tester') {
-      stats.inReview = await Task.count({
-        where: { status: 'IN_REVIEW' },
-        include: [{
-          model: Project,
-          as: 'project',
-          where: { testerId: userId },
-          required: true
-        }]
-      });
+      try {
+        stats.inReview = await Task.count({
+            where: { status: 'IN_REVIEW' },
+            include: [{
+              model: Project,
+              as: 'project',
+              where: { testerId: userId },
+              required: true
+            }]
+          });
+      } catch (e) {}
     }
 
-    // 2. Assigned Projects (Rich Data)
+    // 2. Assigned Projects (Simplified safe query)
     let assignedProjects = [];
-    if (userRole === 'Admin') {
-      assignedProjects = await Project.findAll({
-        attributes: ['id', 'name', 'githubRepoLink', 'websiteLink'],
-        limit: 10
-      });
-    } else if (userRole === 'Tester') {
-      assignedProjects = await Project.findAll({
-        where: { testerId: userId },
-        attributes: ['id', 'name', 'githubRepoLink', 'websiteLink']
-      });
-    } else {
-      assignedProjects = await Project.findAll({
-        distinct: true,
-        include: [{ 
-          model: Task, 
-          as: 'tasks', 
-          where: { assigneeId: userId }, 
-          required: true,
-          attributes: [] 
-        }],
-        attributes: ['id', 'name', 'githubRepoLink', 'websiteLink']
-      });
+    try {
+        if (userRole === 'Admin') {
+          assignedProjects = await Project.findAll({
+            attributes: ['id', 'name', 'githubRepoLink', 'websiteLink'],
+            limit: 10
+          });
+        } else if (userRole === 'Tester') {
+          assignedProjects = await Project.findAll({
+            where: { testerId: userId },
+            attributes: ['id', 'name', 'githubRepoLink', 'websiteLink']
+          });
+        } else {
+          // Developers: Get project IDs from their tasks first to be safe
+          const taskProjects = await Task.findAll({
+              where: { assigneeId: userId },
+              attributes: ['projectId'],
+              raw: true
+          });
+          const projectIds = [...new Set(taskProjects.map(t => t.projectId).filter(id => id))];
+          
+          if (projectIds.length > 0) {
+              assignedProjects = await Project.findAll({
+                  where: { id: { [Op.in]: projectIds } },
+                  attributes: ['id', 'name', 'githubRepoLink', 'websiteLink']
+              });
+          }
+        }
+    } catch (e) {
+        console.error("Dashboard projects sub-error:", e);
     }
 
     // 3. Recent Tasks
@@ -256,7 +278,7 @@ exports.getMobileDashboard = async (req, res) => {
       order: [['updatedAt', 'DESC']],
     });
 
-    // 3. Recent Penalties
+    // 4. Recent Penalties
     const recentPenalties = await Penalty.findAll({
       where: userRole === 'Admin' ? {} : { userId },
       limit: 5,
