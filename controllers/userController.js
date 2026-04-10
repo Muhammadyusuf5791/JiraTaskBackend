@@ -31,21 +31,21 @@ exports.createUser = async (req, res) => {
 };
 
 exports.getMe = async (req, res) => {
-    try {
-        const user = await User.findByPk(req.user.id, {
-            attributes: ['id', 'fullName', 'phone', 'role', 'createdAt', 'updatedAt'] 
-        });
+  try {
+    const user = await User.findByPk(req.user.id, {
+      attributes: ['id', 'fullName', 'phone', 'role', 'createdAt', 'updatedAt']
+    });
 
-        if (!user) {
-            return res.status(404).send({ message: "Foydalanuvchi topilmadi." });
-        }
-
-        res.status(200).send(user);
-
-    } catch (error) {
-        console.error("Foydalanuvchi ma'lumotlarini olishda xatolik:", error);
-        res.status(500).send({ message: "Serverda ichki xatolik yuz berdi." });
+    if (!user) {
+      return res.status(404).send({ message: "Foydalanuvchi topilmadi." });
     }
+
+    res.status(200).send(user);
+
+  } catch (error) {
+    console.error("Foydalanuvchi ma'lumotlarini olishda xatolik:", error);
+    res.status(500).send({ message: "Serverda ichki xatolik yuz berdi." });
+  }
 };
 
 exports.getUsers = async (req, res) => {
@@ -155,28 +155,71 @@ exports.getMobileDashboard = async (req, res) => {
 
     // 1. Basic Stats
     const stats = {
-      pendingTasks: await Task.count({ 
+      pendingTasks: await Task.count({
         where: userRole === 'Admin' ? { status: ['TODO', 'IN_PROGRESS'] } : { assigneeId: userId, status: ['TODO', 'IN_PROGRESS'] }
       }),
-      inReview: await Task.count({ 
-        where: userRole === 'Admin' ? { status: 'IN_REVIEW' } : (userRole === 'Tester' ? { status: 'IN_REVIEW' } : { assigneeId: userId, status: 'IN_REVIEW' })
+      inReview: await Task.count({
+        where: userRole === 'Admin' 
+          ? { status: 'IN_REVIEW' } 
+          : (userRole === 'Tester' 
+            ? { status: 'IN_REVIEW' } // We will refine this below if needed, but for now keeping it simple or adding include
+            : { assigneeId: userId, status: 'IN_REVIEW' })
       }),
-      doneTasks: await Task.count({ 
+      doneTasks: await Task.count({
         where: userRole === 'Admin' ? { status: 'DONE' } : { assigneeId: userId, status: 'DONE' }
       }),
-      penalties: await Penalty.count({ 
+      penalties: await Penalty.count({
         where: userRole === 'Admin' ? {} : { userId }
       }),
       totalUsers: userRole === 'Admin' ? await User.count() : undefined,
-      totalProjects: userRole === 'Admin' ? await Project.count() : undefined,
+      totalProjects: userRole === 'Admin' 
+        ? await Project.count() 
+        : (userRole === 'Tester' 
+          ? await Project.count({ where: { testerId: userId } })
+          : await Project.count({ 
+              distinct: true, 
+              include: [{ 
+                model: Task, 
+                as: 'tasks', 
+                where: { assigneeId: userId }, 
+                required: true 
+              }] 
+            })
+        ),
     };
+
+    // Refine inReview for Tester if they only care about their assigned projects
+    if (userRole === 'Tester') {
+      stats.inReview = await Task.count({
+        where: { status: 'IN_REVIEW' },
+        include: [{
+          model: Project,
+          as: 'project',
+          where: { testerId: userId },
+          required: true
+        }]
+      });
+    }
 
     // 2. Recent Tasks
     const recentTasks = await Task.findAll({
-      where: userRole === 'Admin' ? {} : (userRole === 'Developer' ? { assigneeId: userId } : (userRole === 'Tester' ? { status: 'IN_REVIEW' } : {})),
+      where: userRole === 'Admin' 
+        ? {} 
+        : (userRole === 'Developer' 
+          ? { assigneeId: userId } 
+          : (userRole === 'Tester' 
+            ? { status: 'IN_REVIEW' } 
+            : {})),
+      include: [
+        { 
+          model: Project, 
+          as: 'project', 
+          attributes: ['name'],
+          where: userRole === 'Tester' ? { testerId: userId } : {}
+        }
+      ],
       limit: 5,
       order: [['updatedAt', 'DESC']],
-      include: [{ model: Project, as: 'project', attributes: ['name'] }]
     });
 
     // 3. Recent Penalties
