@@ -167,6 +167,8 @@ exports.getMobileDashboard = async (req, res) => {
       penalties: await Penalty.count({ 
         where: userRole === 'Admin' ? {} : { userId }
       }),
+      totalUsers: userRole === 'Admin' ? await User.count() : undefined,
+      totalProjects: userRole === 'Admin' ? await Project.count() : undefined,
     };
 
     // 2. Recent Tasks
@@ -177,17 +179,21 @@ exports.getMobileDashboard = async (req, res) => {
       include: [{ model: Project, as: 'project', attributes: ['name'] }]
     });
 
-    // 3. Unread Notifications
-    const recentNotifications = await Notification.findAll({
-      where: { userId },
+    // 3. Recent Penalties
+    const recentPenalties = await Penalty.findAll({
+      where: userRole === 'Admin' ? {} : { userId },
       limit: 5,
-      order: [['createdAt', 'DESC']]
+      order: [['createdAt', 'DESC']],
+      include: [
+        { model: User, as: 'user', attributes: ['fullName'] },
+        { model: User, as: 'admin', attributes: ['fullName'] }
+      ]
     });
 
     res.status(200).send({
       stats,
       recentTasks,
-      recentNotifications
+      recentPenalties
     });
   } catch (error) {
     console.error("Mobile dashboard error:", error);
