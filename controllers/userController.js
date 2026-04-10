@@ -269,37 +269,50 @@ exports.getMobileDashboard = async (req, res) => {
         console.error("Dashboard projects sub-error:", e);
     }
 
-    // 3. Recent Tasks
-    const recentTasks = await Task.findAll({
-      where: userRole === 'Admin' 
+    // 4. Recent Tasks (Safely)
+    let recentTasks = [];
+    try {
+      const tasksWhere = userRole === 'Admin' 
         ? {} 
         : (userRole === 'Developer' 
           ? { assigneeId: userId } 
           : (userRole === 'Tester' 
             ? { status: 'IN_REVIEW' } 
-            : {})),
-      include: [
-        { 
-          model: Project, 
-          as: 'project', 
-          attributes: ['name'],
-          where: userRole === 'Tester' ? { testerId: userId } : {}
-        }
-      ],
-      limit: 5,
-      order: [['updatedAt', 'DESC']],
-    });
+            : {}));
+            
+      const projectInclude = { 
+        model: Project, 
+        as: 'project', 
+        attributes: ['name']
+      };
 
-    // 4. Recent Penalties
-    const recentPenalties = await Penalty.findAll({
-      where: userRole === 'Admin' ? {} : { userId },
-      limit: 5,
-      order: [['createdAt', 'DESC']],
-      include: [
-        { model: User, as: 'user', attributes: ['fullName'] },
-        { model: User, as: 'admin', attributes: ['fullName'] }
-      ]
-    });
+      // Only filter by testerId in include if user is a Tester
+      if (userRole === 'Tester') {
+        projectInclude.where = { testerId: userId };
+        projectInclude.required = true;
+      }
+
+      recentTasks = await Task.findAll({
+        where: tasksWhere,
+        include: [projectInclude],
+        limit: 5,
+        order: [['updatedAt', 'DESC']],
+      });
+    } catch (e) { console.error("Recent tasks error:", e); }
+
+    // 5. Recent Penalties (Safely)
+    let recentPenalties = [];
+    try {
+      recentPenalties = await Penalty.findAll({
+        where: userRole === 'Admin' ? {} : { userId },
+        limit: 5,
+        order: [['createdAt', 'DESC']],
+        include: [
+          { model: User, as: 'user', attributes: ['fullName'] },
+          { model: User, as: 'admin', attributes: ['fullName'] }
+        ]
+      });
+    } catch (e) { console.error("Recent penalties error:", e); }
 
     res.status(200).send({
       stats,
