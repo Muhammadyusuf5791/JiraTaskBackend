@@ -153,7 +153,7 @@ exports.getMobileDashboard = async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // 1. Basic Stats with safety
+    // Initialize all stats with 0
     const stats = {
       pendingTasks: 0,
       inReview: 0,
@@ -161,8 +161,11 @@ exports.getMobileDashboard = async (req, res) => {
       overdueTasks: 0,
       penalties: 0,
       totalPenaltyAmount: 0,
+      totalProjects: 0,
+      totalUsers: 0
     };
 
+    // 1. Task Stats
     try {
       stats.pendingTasks = await Task.count({
         where: userRole === 'Admin' ? { status: ['TODO', 'IN_PROGRESS'] } : { assigneeId: userId, status: ['TODO', 'IN_PROGRESS'] }
@@ -182,37 +185,41 @@ exports.getMobileDashboard = async (req, res) => {
           ? { status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } } 
           : { assigneeId: userId, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
       });
+    } catch (err) { console.error("Task stats error:", err); }
+
+    // 2. Penalty Stats
+    try {
       stats.penalties = await Penalty.count({
         where: userRole === 'Admin' ? {} : { userId }
       });
-      
       const penaltySum = await Penalty.sum('amount', {
         where: userRole === 'Admin' ? {} : { userId }
       });
       stats.totalPenaltyAmount = penaltySum || 0;
-      
+    } catch (err) { console.error("Penalty stats error:", err); }
+
+    // 3. Project & User Stats
+    try {
       if (userRole === 'Admin') {
-          stats.totalUsers = await User.count();
-          stats.totalProjects = await Project.count();
+        stats.totalUsers = await User.count();
+        stats.totalProjects = await Project.count();
       } else if (userRole === 'Tester') {
-          stats.totalProjects = await Project.count({ where: { testerId: userId } });
+        stats.totalProjects = await Project.count({ where: { testerId: userId } });
       } else {
-          // For developers, count projects where they are Team Lead OR have tasks
-          const tlProjects = await Project.findAll({ where: { teamLeadId: userId }, attributes: ['id'], raw: true });
-          const devTasks = await Task.findAll({
-              where: { assigneeId: userId },
-              attributes: ['projectId'],
-              raw: true
-          });
-          const allIds = new Set([
-              ...tlProjects.map(p => p.id),
-              ...devTasks.map(t => t.projectId).filter(id => id)
-          ]);
-          stats.totalProjects = allIds.size;
+        // Developer
+        const tlProjects = await Project.findAll({ where: { teamLeadId: userId }, attributes: ['id'], raw: true });
+        const devTasks = await Task.findAll({
+          where: { assigneeId: userId },
+          attributes: ['projectId'],
+          raw: true
+        });
+        const allIds = new Set([
+          ...tlProjects.map(p => p.id),
+          ...devTasks.map(t => t.projectId).filter(id => id)
+        ]);
+        stats.totalProjects = allIds.size;
       }
-    } catch (e) {
-      console.error("Dashboard stats sub-error:", e);
-    }
+    } catch (err) { console.error("Project/User stats error:", err); }
 
     // Refine inReview for Tester
     if (userRole === 'Tester') {
