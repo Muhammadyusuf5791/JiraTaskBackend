@@ -1,5 +1,6 @@
-const { Project, User } = require("../models");
+const { Project, User, Task } = require("../models");
 const { validateProject, validateUpdateProject } = require("../validation/projectValidation");
+const { Op } = require("sequelize");
 
 exports.createProject = async (req, res) => {
   const { error } = validateProject(req.body);
