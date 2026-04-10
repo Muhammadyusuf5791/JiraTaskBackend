@@ -162,15 +162,23 @@ exports.getMobileDashboard = async (req, res) => {
         where: userRole === 'Admin' 
           ? { status: 'IN_REVIEW' } 
           : (userRole === 'Tester' 
-            ? { status: 'IN_REVIEW' } // We will refine this below if needed, but for now keeping it simple or adding include
+            ? { status: 'IN_REVIEW' } 
             : { assigneeId: userId, status: 'IN_REVIEW' })
       }),
       doneTasks: await Task.count({
         where: userRole === 'Admin' ? { status: 'DONE' } : { assigneeId: userId, status: 'DONE' }
       }),
+      overdueTasks: await Task.count({
+        where: userRole === 'Admin' 
+          ? { status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } } 
+          : { assigneeId: userId, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
+      }),
       penalties: await Penalty.count({
         where: userRole === 'Admin' ? {} : { userId }
       }),
+      totalPenaltyAmount: await Penalty.sum('amount', {
+        where: userRole === 'Admin' ? {} : { userId }
+      }) || 0,
       totalUsers: userRole === 'Admin' ? await User.count() : undefined,
       totalProjects: userRole === 'Admin' 
         ? await Project.count() 
@@ -188,7 +196,7 @@ exports.getMobileDashboard = async (req, res) => {
         ),
     };
 
-    // Refine inReview for Tester if they only care about their assigned projects
+    // Refine inReview for Tester
     if (userRole === 'Tester') {
       stats.inReview = await Task.count({
         where: { status: 'IN_REVIEW' },
@@ -201,7 +209,33 @@ exports.getMobileDashboard = async (req, res) => {
       });
     }
 
-    // 2. Recent Tasks
+    // 2. Assigned Projects (Rich Data)
+    let assignedProjects = [];
+    if (userRole === 'Admin') {
+      assignedProjects = await Project.findAll({
+        attributes: ['id', 'name', 'githubRepoLink', 'websiteLink'],
+        limit: 10
+      });
+    } else if (userRole === 'Tester') {
+      assignedProjects = await Project.findAll({
+        where: { testerId: userId },
+        attributes: ['id', 'name', 'githubRepoLink', 'websiteLink']
+      });
+    } else {
+      assignedProjects = await Project.findAll({
+        distinct: true,
+        include: [{ 
+          model: Task, 
+          as: 'tasks', 
+          where: { assigneeId: userId }, 
+          required: true,
+          attributes: [] 
+        }],
+        attributes: ['id', 'name', 'githubRepoLink', 'websiteLink']
+      });
+    }
+
+    // 3. Recent Tasks
     const recentTasks = await Task.findAll({
       where: userRole === 'Admin' 
         ? {} 
@@ -235,6 +269,7 @@ exports.getMobileDashboard = async (req, res) => {
 
     res.status(200).send({
       stats,
+      assignedProjects,
       recentTasks,
       recentPenalties
     });
