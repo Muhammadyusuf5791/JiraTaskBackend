@@ -108,6 +108,22 @@ exports.updateProject = async (req, res) => {
     const project = await Project.findByPk(req.params.id);
     if (!project) return res.status(404).send({ message: "Loyiha topilmadi" });
 
+    // Check if archiving is requested
+    if (req.body.isArchived === true && project.isArchived === false) {
+      const incompleteTasks = await Task.count({
+        where: {
+          projectId: project.id,
+          status: { [Op.ne]: "DONE" }
+        }
+      });
+
+      if (incompleteTasks > 0) {
+        return res.status(400).send({ 
+          message: "Barcha vazifalar bajarilmaguncha loyihani arxivlab bo'lmaydi" 
+        });
+      }
+    }
+
     await project.update(req.body);
     res.status(200).send(project);
   } catch (error) {
