@@ -38,7 +38,7 @@ exports.getTesterStats = async (req, res) => {
     // Get projects assigned to this tester
     const assignedProjects = await Project.findAll({
       where: { testerId: userId },
-      attributes: ['id']
+      attributes: ['id', 'name']
     });
     const projectIds = assignedProjects.map(p => p.id);
 
@@ -80,7 +80,8 @@ exports.getTesterStats = async (req, res) => {
       pendingReview,
       totalReviewed,
       reviewedToday,
-      myPenalties
+      myPenalties,
+      assignedProjects
     });
   } catch (error) {
     console.error("getTesterStats error:", error);
