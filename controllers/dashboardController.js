@@ -31,6 +31,62 @@ exports.getAdminStats = async (req, res) => {
   }
 };
 
+exports.getTesterStats = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Get projects assigned to this tester
+    const assignedProjects = await Project.findAll({
+      where: { testerId: userId },
+      attributes: ['id']
+    });
+    const projectIds = assignedProjects.map(p => p.id);
+
+    // Pending review
+    const pendingReview = await Task.count({
+      where: {
+        projectId: projectIds,
+        status: 'IN_REVIEW'
+      }
+    });
+
+    // Total Reviewed (DONE status)
+    const totalReviewed = await Task.count({
+      where: {
+        projectId: projectIds,
+        status: 'DONE'
+      }
+    });
+
+    // Recently Reviewed (DONE status updated today)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const reviewedToday = await Task.count({
+      where: {
+        projectId: projectIds,
+        status: 'DONE',
+        updatedAt: { [Op.gte]: today }
+      }
+    });
+
+    // Penalties for the tester themselves
+    const myPenalties = await Penalty.findAll({
+      where: { userId },
+      order: [['createdAt', 'DESC']]
+    });
+
+    res.status(200).send({
+      pendingReview,
+      totalReviewed,
+      reviewedToday,
+      myPenalties
+    });
+  } catch (error) {
+    console.error("getTesterStats error:", error);
+    res.status(500).send({ message: "Serverda xatolik", error: error.message });
+  }
+};
+
 exports.getUserProfile = async (req, res) => {
   try {
     const userId = req.params.userId || req.user.id;

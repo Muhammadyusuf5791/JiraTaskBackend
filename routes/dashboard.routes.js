@@ -28,6 +28,7 @@ const checkRole = require("../middleware/roleAuth");
  *         description: Server error
  */
 router.get("/admin/stats", auth, checkRole(["Admin"]), dashboardController.getAdminStats);
+router.get("/tester/stats", auth, checkRole(["Tester"]), dashboardController.getTesterStats);
 
 /**
  * @swagger
