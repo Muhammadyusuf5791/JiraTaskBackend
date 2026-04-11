@@ -72,6 +72,7 @@ exports.getTesterStats = async (req, res) => {
     // Penalties for the tester themselves
     const myPenalties = await Penalty.findAll({
       where: { userId },
+      include: [{ model: User, as: "admin", attributes: ["fullName"] }],
       order: [['createdAt', 'DESC']]
     });
 
@@ -123,6 +124,7 @@ exports.getDeveloperStats = async (req, res) => {
     // Penalties
     const penalties = await Penalty.findAll({
       where: { userId },
+      include: [{ model: User, as: "admin", attributes: ["fullName"] }],
       order: [['createdAt', 'DESC']]
     });
 
