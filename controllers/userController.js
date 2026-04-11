@@ -193,12 +193,23 @@ exports.getMobileDashboard = async (req, res) => {
         });
       } else {
         // Developer
-        stats.pendingTasks = await Task.count({ where: { assigneeId: userId, status: ['TODO', 'IN_PROGRESS'] } });
+        stats.todoTasks = await Task.count({ where: { assigneeId: userId, status: 'TODO' } });
+        stats.inProgressTasks = await Task.count({ where: { assigneeId: userId, status: 'IN_PROGRESS' } });
         stats.inReview = await Task.count({ where: { assigneeId: userId, status: 'IN_REVIEW' } });
         stats.doneTasks = await Task.count({ where: { assigneeId: userId, status: 'DONE' } });
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        stats.doneToday = await Task.count({
+          where: { assigneeId: userId, status: 'DONE', updatedAt: { [Op.gte]: today } }
+        });
+
         stats.overdueTasks = await Task.count({
           where: { assigneeId: userId, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
         });
+        
+        // For compatibility with old frontend checks
+        stats.pendingTasks = stats.todoTasks + stats.inProgressTasks;
       }
     } catch (err) { console.error("Task stats error:", err); }
 
