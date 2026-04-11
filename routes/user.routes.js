@@ -214,5 +214,6 @@ router.post("/signin", userController.loginUser);
 
 router.get('/me', auth, userController.getMe);
 router.get('/mobile/dashboard', auth, userController.getMobileDashboard);
+router.post('/change-password', auth, userController.changePassword);
 
 module.exports = router;

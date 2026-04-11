@@ -32,16 +32,38 @@ exports.createUser = async (req, res) => {
 
 exports.getMe = async (req, res) => {
   try {
-    const user = await User.findByPk(req.user.id, {
-      attributes: ['id', 'fullName', 'phone', 'role', 'createdAt', 'updatedAt']
+    const userId = req.user.id;
+    const user = await User.findByPk(userId, {
+      attributes: ['id', 'fullName', 'phone', 'role', 'createdAt']
     });
 
     if (!user) {
       return res.status(404).send({ message: "Foydalanuvchi topilmadi." });
     }
 
-    res.status(200).send(user);
+    // Aggregate stats for profile
+    const doneTasks = await Task.count({ where: { assigneeId: userId, status: 'DONE' } });
+    const activeTasks = await Task.count({ where: { assigneeId: userId, status: ['TODO', 'IN_PROGRESS'] } });
+    
+    // Project count based on role
+    let projectCount = 0;
+    if (user.role === 'Admin') {
+      projectCount = await Project.count();
+    } else if (user.role === 'Tester') {
+      projectCount = await Project.count({ where: { testerId: userId } });
+    } else {
+      const devTasks = await Task.findAll({ where: { assigneeId: userId }, attributes: ['projectId'], raw: true });
+      projectCount = new Set(devTasks.map(t => t.projectId).filter(id => id)).size;
+    }
 
+    const userData = user.toJSON();
+    userData.stats = {
+      doneTasks,
+      activeTasks,
+      projectCount
+    };
+
+    res.status(200).send(userData);
   } catch (error) {
     console.error("Foydalanuvchi ma'lumotlarini olishda xatolik:", error);
     res.status(500).send({ message: "Serverda ichki xatolik yuz berdi." });
@@ -343,5 +365,26 @@ exports.getMobileDashboard = async (req, res) => {
   } catch (error) {
     console.error("Mobile dashboard error:", error);
     res.status(500).send({ message: "Serverda xatolik", error: error.message });
+  }
+};
+
+exports.changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.user.id;
+
+  try {
+    const user = await User.scope(null).findByPk(userId);
+    if (!user) return res.status(404).send({ message: "Foydalanuvchi topilmadi" });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) return res.status(400).send({ message: "Joriy parol noto'g'ri" });
+
+    user.password = newPassword; // beforeSave hook will hash it
+    await user.save();
+
+    res.status(200).send({ message: "Parol muvaffaqiyatli o'zgartirildi" });
+  } catch (error) {
+    console.error("Change password error:", error);
+    res.status(500).send({ message: "Serverda xatolik" });
   }
 };
