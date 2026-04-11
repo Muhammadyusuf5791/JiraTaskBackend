@@ -17,7 +17,7 @@ exports.getTasks = async (req, res) => {
   try {
     const whereClause = {};
     
-    // If the user is a Tester, only show IN_REVIEW tasks from projects they are assigned to
+    // If the user is a Tester, only show IN_REVIEW and DONE tasks from projects they are assigned to
     if (req.user && req.user.role === "Tester") {
       const assignedProjects = await Project.findAll({
         where: { testerId: req.user.id },
@@ -25,7 +25,7 @@ exports.getTasks = async (req, res) => {
       });
       const projectIds = assignedProjects.map(p => p.id);
       whereClause.projectId = projectIds;
-      whereClause.status = 'IN_REVIEW';
+      whereClause.status = ['IN_REVIEW', 'DONE'];
     }
 
     // If the user is a Developer, only show tasks assigned to them

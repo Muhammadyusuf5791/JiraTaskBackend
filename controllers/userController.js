@@ -171,18 +171,18 @@ exports.getMobileDashboard = async (req, res) => {
         where: userRole === 'Admin' ? { status: ['TODO', 'IN_PROGRESS'] } : { assigneeId: userId, status: ['TODO', 'IN_PROGRESS'] }
       });
       stats.inReview = await Task.count({
-        where: userRole === 'Admin' 
-          ? { status: 'IN_REVIEW' } 
-          : (userRole === 'Tester' 
-            ? { status: 'IN_REVIEW' } 
+        where: userRole === 'Admin'
+          ? { status: 'IN_REVIEW' }
+          : (userRole === 'Tester'
+            ? { status: 'IN_REVIEW' }
             : { assigneeId: userId, status: 'IN_REVIEW' })
       });
       stats.doneTasks = await Task.count({
         where: userRole === 'Admin' ? { status: 'DONE' } : { assigneeId: userId, status: 'DONE' }
       });
       stats.overdueTasks = await Task.count({
-        where: userRole === 'Admin' 
-          ? { status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } } 
+        where: userRole === 'Admin'
+          ? { status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
           : { assigneeId: userId, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
       });
     } catch (err) { console.error("Task stats error:", err); }
@@ -225,64 +225,64 @@ exports.getMobileDashboard = async (req, res) => {
     if (userRole === 'Tester') {
       try {
         stats.inReview = await Task.count({
-            where: { status: 'IN_REVIEW' },
-            include: [{
-              model: Project,
-              as: 'project',
-              where: { testerId: userId },
-              required: true
-            }]
-          });
-      } catch (e) {}
+          where: { status: 'IN_REVIEW' },
+          include: [{
+            model: Project,
+            as: 'project',
+            where: { testerId: userId },
+            required: true
+          }]
+        });
+      } catch (e) { }
     }
 
     // 2. Assigned Projects (Simplified safe query)
     let assignedProjects = [];
     try {
-        if (userRole === 'Admin') {
+      if (userRole === 'Admin') {
+        assignedProjects = await Project.findAll({
+          attributes: ['id', 'name', 'githubRepoLink', 'websiteLink'],
+          limit: 10
+        });
+      } else if (userRole === 'Tester') {
+        assignedProjects = await Project.findAll({
+          where: { testerId: userId },
+          attributes: ['id', 'name', 'githubRepoLink', 'websiteLink']
+        });
+      } else {
+        // Developers: Get project IDs from their tasks first to be safe
+        const taskProjects = await Task.findAll({
+          where: { assigneeId: userId },
+          attributes: ['projectId'],
+          raw: true
+        });
+        const projectIds = [...new Set(taskProjects.map(t => t.projectId).filter(id => id))];
+
+        if (projectIds.length > 0) {
           assignedProjects = await Project.findAll({
-            attributes: ['id', 'name', 'githubRepoLink', 'websiteLink'],
-            limit: 10
-          });
-        } else if (userRole === 'Tester') {
-          assignedProjects = await Project.findAll({
-            where: { testerId: userId },
+            where: { id: { [Op.in]: projectIds } },
             attributes: ['id', 'name', 'githubRepoLink', 'websiteLink']
           });
-        } else {
-          // Developers: Get project IDs from their tasks first to be safe
-          const taskProjects = await Task.findAll({
-              where: { assigneeId: userId },
-              attributes: ['projectId'],
-              raw: true
-          });
-          const projectIds = [...new Set(taskProjects.map(t => t.projectId).filter(id => id))];
-          
-          if (projectIds.length > 0) {
-              assignedProjects = await Project.findAll({
-                  where: { id: { [Op.in]: projectIds } },
-                  attributes: ['id', 'name', 'githubRepoLink', 'websiteLink']
-              });
-          }
         }
+      }
     } catch (e) {
-        console.error("Dashboard projects sub-error:", e);
+      console.error("Dashboard projects sub-error:", e);
     }
 
     // 4. Recent Tasks (Safely)
     let recentTasks = [];
     try {
-      const tasksWhere = userRole === 'Admin' 
-        ? {} 
-        : (userRole === 'Developer' 
-          ? { assigneeId: userId } 
-          : (userRole === 'Tester' 
-            ? { status: 'IN_REVIEW' } 
+      const tasksWhere = userRole === 'Admin'
+        ? {}
+        : (userRole === 'Developer'
+          ? { assigneeId: userId }
+          : (userRole === 'Tester'
+            ? { status: 'IN_REVIEW' }
             : {}));
-            
-      const projectInclude = { 
-        model: Project, 
-        as: 'project', 
+
+      const projectInclude = {
+        model: Project,
+        as: 'project',
         attributes: ['name']
       };
 

@@ -18,22 +18,36 @@ exports.getProjects = async (req, res) => {
   try {
     const userId = req.user.id;
     const userRole = req.user.role;
+    const { archived } = req.query;
+    
+    let whereClause = {};
+    
+    // Default: only non-archived projects
+    if (archived === 'true') {
+        whereClause.isArchived = true;
+    } else {
+        whereClause.isArchived = false;
+    }
+
     let projects = [];
 
     if (userRole === "Admin") {
       projects = await Project.findAll({
+        where: whereClause,
         include: [
           { model: User, as: "teamLead", attributes: ["id", "fullName", "role"] },
           { model: User, as: "tester", attributes: ["id", "fullName", "role"] },
         ],
+        order: [['createdAt', 'DESC']]
       });
     } else if (userRole === "Tester") {
       projects = await Project.findAll({
-        where: { testerId: userId },
+        where: { ...whereClause, testerId: userId },
         include: [
           { model: User, as: "teamLead", attributes: ["id", "fullName", "role"] },
           { model: User, as: "tester", attributes: ["id", "fullName", "role"] },
         ],
+        order: [['createdAt', 'DESC']]
       });
     } else {
       // Developer: Find projects where they have tasks assigned
@@ -46,11 +60,12 @@ exports.getProjects = async (req, res) => {
       
       if (projectIds.length > 0) {
         projects = await Project.findAll({
-          where: { id: { [Op.in]: projectIds } },
+          where: { ...whereClause, id: { [Op.in]: projectIds } },
           include: [
             { model: User, as: "teamLead", attributes: ["id", "fullName", "role"] },
             { model: User, as: "tester", attributes: ["id", "fullName", "role"] },
           ],
+          order: [['createdAt', 'DESC']]
         });
       }
     }
