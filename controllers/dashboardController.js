@@ -87,6 +87,59 @@ exports.getTesterStats = async (req, res) => {
   }
 };
 
+exports.getDeveloperStats = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Task counts by status
+    const stats = await Task.findAll({
+      where: { assigneeId: userId },
+      attributes: ["status", [sequelize.fn("COUNT", sequelize.col("id")), "count"]],
+      group: ["status"],
+    });
+
+    const statusCounts = {
+      TODO: 0,
+      IN_PROGRESS: 0,
+      IN_REVIEW: 0,
+      DONE: 0
+    };
+
+    stats.forEach(s => {
+      statusCounts[s.status] = parseInt(s.get("count"));
+    });
+
+    // Done Today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const doneToday = await Task.count({
+      where: {
+        assigneeId: userId,
+        status: 'DONE',
+        updatedAt: { [Op.gte]: today }
+      }
+    });
+
+    // Penalties
+    const penalties = await Penalty.findAll({
+      where: { userId },
+      order: [['createdAt', 'DESC']]
+    });
+
+    const totalPenalties = penalties.reduce((acc, p) => acc + Number(p.amount), 0);
+
+    res.status(200).send({
+      ...statusCounts,
+      doneToday,
+      penalties,
+      totalPenalties
+    });
+  } catch (error) {
+    console.error("getDeveloperStats error:", error);
+    res.status(500).send({ message: "Serverda xatolik", error: error.message });
+  }
+};
+
 exports.getUserProfile = async (req, res) => {
   try {
     const userId = req.params.userId || req.user.id;

@@ -29,6 +29,7 @@ const checkRole = require("../middleware/roleAuth");
  */
 router.get("/admin/stats", auth, checkRole(["Admin"]), dashboardController.getAdminStats);
 router.get("/tester/stats", auth, checkRole(["Tester"]), dashboardController.getTesterStats);
+router.get("/developer/stats", auth, checkRole(["Developer"]), dashboardController.getDeveloperStats);
 
 /**
  * @swagger
