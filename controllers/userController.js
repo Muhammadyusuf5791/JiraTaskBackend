@@ -168,24 +168,24 @@ exports.getMobileDashboard = async (req, res) => {
     // 1. Task Stats
     try {
       if (userRole === 'Admin') {
-        stats.pendingTasks = await Task.count({ where: { status: ['TODO', 'IN_PROGRESS'] } });
-        stats.inReview = await Task.count({ where: { status: 'IN_REVIEW' } });
-        stats.doneTasks = await Task.count({ where: { status: 'DONE' } });
+        stats.pendingTasks = await Task.count({ where: { status: ['TODO', 'IN_PROGRESS'], isArchived: { [Op.ne]: true } } });
+        stats.inReview = await Task.count({ where: { status: 'IN_REVIEW', isArchived: { [Op.ne]: true } } });
+        stats.doneTasks = await Task.count({ where: { status: 'DONE', isArchived: { [Op.ne]: true } } });
         stats.overdueTasks = await Task.count({
-          where: { status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
+          where: { status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() }, isArchived: { [Op.ne]: true } }
         });
       } else if (userRole === 'Tester') {
         // Get tester's projects
         const testerProjects = await Project.findAll({ where: { testerId: userId }, attributes: ['id'] });
         const pIds = testerProjects.map(p => p.id);
 
-        stats.inReview = await Task.count({ where: { projectId: pIds, status: 'IN_REVIEW' } });
-        stats.doneTasks = await Task.count({ where: { projectId: pIds, status: 'DONE' } }); // Total Reviewed
+        stats.inReview = await Task.count({ where: { projectId: pIds, status: 'IN_REVIEW', isArchived: { [Op.ne]: true } } });
+        stats.doneTasks = await Task.count({ where: { projectId: pIds, status: 'DONE', isArchived: { [Op.ne]: true } } }); // Total Reviewed
         
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         stats.reviewedToday = await Task.count({
-          where: { projectId: pIds, status: 'DONE', updatedAt: { [Op.gte]: today } }
+          where: { projectId: pIds, status: 'DONE', updatedAt: { [Op.gte]: today }, isArchived: { [Op.ne]: true } }
         });
         
         stats.overdueTasks = await Task.count({
@@ -193,19 +193,19 @@ exports.getMobileDashboard = async (req, res) => {
         });
       } else {
         // Developer
-        stats.todoTasks = await Task.count({ where: { assigneeId: userId, status: 'TODO' } });
-        stats.inProgressTasks = await Task.count({ where: { assigneeId: userId, status: 'IN_PROGRESS' } });
-        stats.inReview = await Task.count({ where: { assigneeId: userId, status: 'IN_REVIEW' } });
-        stats.doneTasks = await Task.count({ where: { assigneeId: userId, status: 'DONE' } });
+        stats.todoTasks = await Task.count({ where: { assigneeId: userId, status: 'TODO', isArchived: { [Op.ne]: true } } });
+        stats.inProgressTasks = await Task.count({ where: { assigneeId: userId, status: 'IN_PROGRESS', isArchived: { [Op.ne]: true } } });
+        stats.inReview = await Task.count({ where: { assigneeId: userId, status: 'IN_REVIEW', isArchived: { [Op.ne]: true } } });
+        stats.doneTasks = await Task.count({ where: { assigneeId: userId, status: 'DONE', isArchived: { [Op.ne]: true } } });
         
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         stats.doneToday = await Task.count({
-          where: { assigneeId: userId, status: 'DONE', updatedAt: { [Op.gte]: today } }
+          where: { assigneeId: userId, status: 'DONE', updatedAt: { [Op.gte]: today }, isArchived: { [Op.ne]: true } }
         });
 
         stats.overdueTasks = await Task.count({
-          where: { assigneeId: userId, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
+          where: { assigneeId: userId, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() }, isArchived: { [Op.ne]: true } }
         });
         
         // For compatibility with old frontend checks
@@ -284,17 +284,18 @@ exports.getMobileDashboard = async (req, res) => {
     let recentTasks = [];
     try {
       const tasksWhere = userRole === 'Admin'
-        ? {}
+        ? { isArchived: { [Op.ne]: true } }
         : (userRole === 'Developer'
-          ? { assigneeId: userId }
+          ? { assigneeId: userId, isArchived: { [Op.ne]: true } }
           : (userRole === 'Tester'
-            ? { status: 'IN_REVIEW' }
-            : {}));
+            ? { status: 'IN_REVIEW', isArchived: { [Op.ne]: true } }
+            : { isArchived: { [Op.ne]: true } }));
 
       const projectInclude = {
         model: Project,
         as: 'project',
-        attributes: ['name']
+        attributes: ['name'],
+        where: { isArchived: { [Op.ne]: true } } // Exclude archived projects too
       };
 
       // Only filter by testerId in include if user is a Tester
