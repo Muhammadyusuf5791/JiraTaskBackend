@@ -167,24 +167,39 @@ exports.getMobileDashboard = async (req, res) => {
 
     // 1. Task Stats
     try {
-      stats.pendingTasks = await Task.count({
-        where: userRole === 'Admin' ? { status: ['TODO', 'IN_PROGRESS'] } : { assigneeId: userId, status: ['TODO', 'IN_PROGRESS'] }
-      });
-      stats.inReview = await Task.count({
-        where: userRole === 'Admin'
-          ? { status: 'IN_REVIEW' }
-          : (userRole === 'Tester'
-            ? { status: 'IN_REVIEW' }
-            : { assigneeId: userId, status: 'IN_REVIEW' })
-      });
-      stats.doneTasks = await Task.count({
-        where: userRole === 'Admin' ? { status: 'DONE' } : { assigneeId: userId, status: 'DONE' }
-      });
-      stats.overdueTasks = await Task.count({
-        where: userRole === 'Admin'
-          ? { status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
-          : { assigneeId: userId, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
-      });
+      if (userRole === 'Admin') {
+        stats.pendingTasks = await Task.count({ where: { status: ['TODO', 'IN_PROGRESS'] } });
+        stats.inReview = await Task.count({ where: { status: 'IN_REVIEW' } });
+        stats.doneTasks = await Task.count({ where: { status: 'DONE' } });
+        stats.overdueTasks = await Task.count({
+          where: { status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
+        });
+      } else if (userRole === 'Tester') {
+        // Get tester's projects
+        const testerProjects = await Project.findAll({ where: { testerId: userId }, attributes: ['id'] });
+        const pIds = testerProjects.map(p => p.id);
+
+        stats.inReview = await Task.count({ where: { projectId: pIds, status: 'IN_REVIEW' } });
+        stats.doneTasks = await Task.count({ where: { projectId: pIds, status: 'DONE' } }); // Total Reviewed
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        stats.reviewedToday = await Task.count({
+          where: { projectId: pIds, status: 'DONE', updatedAt: { [Op.gte]: today } }
+        });
+        
+        stats.overdueTasks = await Task.count({
+          where: { projectId: pIds, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
+        });
+      } else {
+        // Developer
+        stats.pendingTasks = await Task.count({ where: { assigneeId: userId, status: ['TODO', 'IN_PROGRESS'] } });
+        stats.inReview = await Task.count({ where: { assigneeId: userId, status: 'IN_REVIEW' } });
+        stats.doneTasks = await Task.count({ where: { assigneeId: userId, status: 'DONE' } });
+        stats.overdueTasks = await Task.count({
+          where: { assigneeId: userId, status: { [Op.ne]: 'DONE' }, deadline: { [Op.lt]: new Date() } }
+        });
+      }
     } catch (err) { console.error("Task stats error:", err); }
 
     // 2. Penalty Stats
@@ -207,7 +222,7 @@ exports.getMobileDashboard = async (req, res) => {
         stats.totalProjects = await Project.count({ where: { testerId: userId } });
       } else {
         // Developer
-        const tlProjects = await Project.findAll({ where: { teamLeadId: userId }, attributes: ['id'], raw: true });
+        const tlProjects = await Project.findAll({ where: { teamLeadId: userId }, attributes: ['id'] });
         const devTasks = await Task.findAll({
           where: { assigneeId: userId },
           attributes: ['projectId'],
@@ -220,21 +235,6 @@ exports.getMobileDashboard = async (req, res) => {
         stats.totalProjects = allIds.size;
       }
     } catch (err) { console.error("Project/User stats error:", err); }
-
-    // Refine inReview for Tester
-    if (userRole === 'Tester') {
-      try {
-        stats.inReview = await Task.count({
-          where: { status: 'IN_REVIEW' },
-          include: [{
-            model: Project,
-            as: 'project',
-            where: { testerId: userId },
-            required: true
-          }]
-        });
-      } catch (e) { }
-    }
 
     // 2. Assigned Projects (Simplified safe query)
     let assignedProjects = [];
